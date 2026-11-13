@@ -1,0 +1,737 @@
+# One lane = every benchmark, one build at a time, on one Build Hub pool (standard-v3 rule: our builds never share a Mac).
+# Each job checks out a bitrise-io/benchmark-* repo and runs that repo's .github/bench scripts.
+# Jobs run in order; a failed job doesn't stop the lane. passes=2 runs the whole suite twice (2 builds per cell).
+name: Lane
+run-name: Lane ${{ inputs.runner }} (${{ inputs.passes }} pass(es), ${{ inputs.warmup_runs }}+${{ inputs.runs }} runs)
+
+on:
+  workflow_dispatch:
+    inputs:
+      runner:
+        description: "Build Hub pool"
+        type: choice
+        default: bitrise-m6-benchmark
+        options: [bitrise-m6-benchmark, bitrise-m5pro-benchmark]
+      passes:
+        description: "Full passes of the suite (2 = 2 builds per cell)"
+        type: choice
+        default: "2"
+        options: ["1", "2"]
+      runs:
+        description: "Measured runs per build"
+        type: string
+        default: "3"
+      warmup_runs:
+        description: "Warm-up runs per build"
+        type: string
+        default: "1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lane-${{ inputs.runner }}
+  cancel-in-progress: false
+
+jobs:
+  p1-firefox:
+    name: "pass 1 · firefox"
+    if: ${{ !cancelled() }}
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 300
+    env:
+      METHOD_VERSION: gha-lane-v1
+      MACHINE_KEY: ${{ inputs.runner }}
+      BENCHMARK_RUNS: ${{ inputs.runs }}
+      WARMUP_RUNS: ${{ inputs.warmup_runs }}
+      BENCH_PASS: "1"
+      BENCHMARK_PROJECT: "Firefox-iOS"
+      FIREFOX_PROJECT: "firefox-ios/Client.xcodeproj"
+      FIREFOX_SCHEME: "Fennec"
+      FIREFOX_CONFIGURATION: "Debug"
+      BUILD_DESTINATION: "generic/platform=iOS Simulator"
+      INCREMENTAL_FILE: "firefox-ios/Client/Application/AppDelegate.swift"
+    steps:
+      - name: Check out benchmark-firefox-ios
+        uses: actions/checkout@v4
+        with:
+          repository: bitrise-io/benchmark-firefox-ios
+          fetch-depth: 1
+      - name: Stage scripts and paths
+        run: |
+          cp -R .github/bench "$RUNNER_TEMP/bench"
+          echo "BENCH_OUT=$RUNNER_TEMP/bench-out" >> "$GITHUB_ENV"
+          echo "SPM_DIR=$RUNNER_TEMP/firefox-spm" >> "$GITHUB_ENV"
+      - name: Machine info
+        run: source "$RUNNER_TEMP/bench/lib.sh" && sysinfo
+      - name: Prepare (not timed)
+        run: bash "$RUNNER_TEMP/bench/prepare.sh"
+      - name: Benchmark
+        run: bash "$RUNNER_TEMP/bench/run.sh"
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: p1-firefox-${{ inputs.runner }}
+          path: ${{ runner.temp }}/bench-out
+          if-no-files-found: warn
+  p1-signal:
+    name: "pass 1 · signal"
+    needs: p1-firefox
+    if: ${{ !cancelled() }}
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 300
+    env:
+      METHOD_VERSION: gha-lane-v1
+      MACHINE_KEY: ${{ inputs.runner }}
+      BENCHMARK_RUNS: ${{ inputs.runs }}
+      WARMUP_RUNS: ${{ inputs.warmup_runs }}
+      BENCH_PASS: "1"
+      BENCHMARK_PROJECT: "Signal-iOS"
+      SIGNAL_SCHEME: "Signal"
+      SIGNAL_CONFIGURATION: "Debug"
+      INCREMENTAL_FILE: "Signal/AppLaunch/AppDelegate.swift"
+    steps:
+      - name: Check out benchmark-signal-ios
+        uses: actions/checkout@v4
+        with:
+          repository: bitrise-io/benchmark-signal-ios
+          fetch-depth: 1
+      - name: Stage scripts and paths
+        run: |
+          cp -R .github/bench "$RUNNER_TEMP/bench"
+          echo "BENCH_OUT=$RUNNER_TEMP/bench-out" >> "$GITHUB_ENV"
+          echo "SPM_DIR=$RUNNER_TEMP/signal-spm" >> "$GITHUB_ENV"
+      - name: Machine info
+        run: source "$RUNNER_TEMP/bench/lib.sh" && sysinfo
+      - name: Prepare (not timed)
+        run: bash "$RUNNER_TEMP/bench/prepare.sh"
+      - name: Benchmark
+        run: bash "$RUNNER_TEMP/bench/run.sh"
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: p1-signal-${{ inputs.runner }}
+          path: ${{ runner.temp }}/bench-out
+          if-no-files-found: warn
+  p1-ddg-build:
+    name: "pass 1 · ddg-build"
+    needs: p1-signal
+    if: ${{ !cancelled() }}
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 300
+    env:
+      METHOD_VERSION: gha-lane-v1
+      MACHINE_KEY: ${{ inputs.runner }}
+      BENCHMARK_RUNS: ${{ inputs.runs }}
+      WARMUP_RUNS: ${{ inputs.warmup_runs }}
+      BENCH_PASS: "1"
+      BENCHMARK_PROJECT: "DuckDuckGo-iOS"
+      BENCH_REPO_URL: "https://github.com/duckduckgo/apple-browsers.git"
+      BENCH_REF_NAME: "7.244.0+ios"
+      BENCH_COMMIT: "560c4f78a44aa1af839e4fef654392ccd8c912fc"
+      XCODE_PROJECT: "DuckDuckGo-iOS.xcodeproj"
+      SCHEME: "iOS Browser"
+      SIM_DEVICE_NAME: "iPhone 18 Pro"
+      SIM_DESTINATION: "platform=iOS Simulator,name=iPhone 18 Pro,OS=latest"
+      INCREMENTAL_TOUCH_FILE: "DuckDuckGo/Main/MainViewController.swift"
+    steps:
+      - name: Check out benchmark-duckduckgo-ios
+        uses: actions/checkout@v4
+        with:
+          repository: bitrise-io/benchmark-duckduckgo-ios
+          fetch-depth: 1
+      - name: Stage scripts and paths
+        run: |
+          cp -R .github/bench "$RUNNER_TEMP/bench"
+          echo "BENCH_OUT=$RUNNER_TEMP/bench-out" >> "$GITHUB_ENV"
+          echo "DDG_SRC=$RUNNER_TEMP/ddg-src" >> "$GITHUB_ENV"
+          echo "IOS_DIR=$RUNNER_TEMP/ddg-src/iOS" >> "$GITHUB_ENV"
+          echo "DERIVED_DATA=$RUNNER_TEMP/ddg-src/iOS/DerivedData" >> "$GITHUB_ENV"
+      - name: Machine info
+        run: source "$RUNNER_TEMP/bench/lib.sh" && sysinfo
+      - name: Prepare (not timed)
+        run: bash "$RUNNER_TEMP/bench/prepare.sh"
+      - name: Benchmark
+        run: bash "$RUNNER_TEMP/bench/run.sh"
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: p1-ddg-build-${{ inputs.runner }}
+          path: ${{ runner.temp }}/bench-out
+          if-no-files-found: warn
+  p1-ddg-test:
+    name: "pass 1 · ddg-test"
+    needs: p1-ddg-build
+    if: ${{ !cancelled() }}
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 300
+    env:
+      METHOD_VERSION: gha-lane-v1
+      MACHINE_KEY: ${{ inputs.runner }}
+      BENCHMARK_RUNS: ${{ inputs.runs }}
+      WARMUP_RUNS: ${{ inputs.warmup_runs }}
+      BENCH_PASS: "1"
+      BENCHMARK_PROJECT: "DuckDuckGo-iOS"
+      BENCH_REPO_URL: "https://github.com/duckduckgo/apple-browsers.git"
+      BENCH_REF_NAME: "7.244.0+ios"
+      BENCH_COMMIT: "560c4f78a44aa1af839e4fef654392ccd8c912fc"
+      XCODE_PROJECT: "DuckDuckGo-iOS.xcodeproj"
+      SCHEME: "iOS Browser"
+      SIM_DEVICE_NAME: "iPhone 18 Pro"
+      SIM_DESTINATION: "platform=iOS Simulator,name=iPhone 18 Pro,OS=latest"
+      INCREMENTAL_TOUCH_FILE: "DuckDuckGo/Main/MainViewController.swift"
+      SPM_FORCE_DEBUG: "1"
+      SKIP_TESTS: |
+        SyncUI-iOSTests/TurnOffSyncSheetViewTests
+        SyncUI-iOSTests/ScanQRCodeViewTests
+        SyncUI-iOSTests/SimplifiedConnectingSheetViewTests
+        SyncUI-iOSTests/SyncCodeSheetViewTests
+        SyncUI-iOSTests/EnterCodeTabViewTests
+        SyncUI-iOSTests/SimplifiedSyncSettingsViewTests
+        UnitTests/AIChatSyncPromoViewTests
+        UnitTests/SyncSuccessViewTests
+        UnitTests/VoiceSearchFeedbackViewTests
+        UnitTests/TabPreviewsSourceTests/testWhenUpdateFullScreenSnapshotThenItCanBeRetrieved
+        UnitTests/NetworkProtectionVPNLocationViewModelTests/test_onViewAppeared_loadedListIsSorted
+        UnitTests/AIChatContextualInputViewControllerTests/testWhenAskIsTappedWithTheDisclaimerOnScreenThenAButtonPromptIsReported
+    steps:
+      - name: Check out benchmark-duckduckgo-ios
+        uses: actions/checkout@v4
+        with:
+          repository: bitrise-io/benchmark-duckduckgo-ios
+          fetch-depth: 1
+      - name: Stage scripts and paths
+        run: |
+          cp -R .github/bench "$RUNNER_TEMP/bench"
+          echo "BENCH_OUT=$RUNNER_TEMP/bench-out" >> "$GITHUB_ENV"
+          echo "DDG_SRC=$RUNNER_TEMP/ddg-src" >> "$GITHUB_ENV"
+          echo "IOS_DIR=$RUNNER_TEMP/ddg-src/iOS" >> "$GITHUB_ENV"
+          echo "DERIVED_DATA=$RUNNER_TEMP/ddg-src/iOS/DerivedData" >> "$GITHUB_ENV"
+      - name: Machine info
+        run: source "$RUNNER_TEMP/bench/lib.sh" && sysinfo
+      - name: Prepare (not timed)
+        run: bash "$RUNNER_TEMP/bench/prepare.sh"
+      - name: Benchmark
+        run: bash "$RUNNER_TEMP/bench/test.sh"
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: p1-ddg-test-${{ inputs.runner }}
+          path: ${{ runner.temp }}/bench-out
+          if-no-files-found: warn
+  p1-telegram-debug:
+    name: "pass 1 · telegram-debug"
+    needs: p1-ddg-test
+    if: ${{ !cancelled() }}
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 300
+    env:
+      METHOD_VERSION: gha-lane-v1
+      MACHINE_KEY: ${{ inputs.runner }}
+      BENCHMARK_RUNS: ${{ inputs.runs }}
+      WARMUP_RUNS: ${{ inputs.warmup_runs }}
+      BENCH_PASS: "1"
+      BENCHMARK_PROJECT: "Telegram-iOS"
+      TG_COMMIT: "279f89e4d4f63f17227bf877dc3d8990f22ecd58"
+      TG_CONFIGURATION: "debug_sim_arm64"
+    steps:
+      - name: Check out benchmark-telegram-ios
+        uses: actions/checkout@v4
+        with:
+          repository: bitrise-io/benchmark-telegram-ios
+          fetch-depth: 1
+      - name: Stage scripts and paths
+        run: |
+          cp -R .github/bench "$RUNNER_TEMP/bench"
+          echo "BENCH_OUT=$RUNNER_TEMP/bench-out" >> "$GITHUB_ENV"
+      - name: Machine info
+        run: source "$RUNNER_TEMP/bench/lib.sh" && sysinfo
+      - name: Prepare (not timed)
+        run: bash "$RUNNER_TEMP/bench/prepare.sh"
+      - name: Benchmark
+        run: bash "$RUNNER_TEMP/bench/run.sh"
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: p1-telegram-debug-${{ inputs.runner }}
+          path: ${{ runner.temp }}/bench-out
+          if-no-files-found: warn
+  p1-telegram-release:
+    name: "pass 1 · telegram-release"
+    needs: p1-telegram-debug
+    if: ${{ !cancelled() }}
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 300
+    env:
+      METHOD_VERSION: gha-lane-v1
+      MACHINE_KEY: ${{ inputs.runner }}
+      BENCHMARK_RUNS: ${{ inputs.runs }}
+      WARMUP_RUNS: ${{ inputs.warmup_runs }}
+      BENCH_PASS: "1"
+      BENCHMARK_PROJECT: "Telegram-iOS"
+      TG_COMMIT: "279f89e4d4f63f17227bf877dc3d8990f22ecd58"
+      TG_CONFIGURATION: "release_sim_arm64"
+    steps:
+      - name: Check out benchmark-telegram-ios
+        uses: actions/checkout@v4
+        with:
+          repository: bitrise-io/benchmark-telegram-ios
+          fetch-depth: 1
+      - name: Stage scripts and paths
+        run: |
+          cp -R .github/bench "$RUNNER_TEMP/bench"
+          echo "BENCH_OUT=$RUNNER_TEMP/bench-out" >> "$GITHUB_ENV"
+      - name: Machine info
+        run: source "$RUNNER_TEMP/bench/lib.sh" && sysinfo
+      - name: Prepare (not timed)
+        run: bash "$RUNNER_TEMP/bench/prepare.sh"
+      - name: Benchmark
+        run: bash "$RUNNER_TEMP/bench/run.sh"
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: p1-telegram-release-${{ inputs.runner }}
+          path: ${{ runner.temp }}/bench-out
+          if-no-files-found: warn
+  p1-xcodebenchmark:
+    name: "pass 1 · xcodebenchmark"
+    needs: p1-telegram-release
+    if: ${{ !cancelled() }}
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 300
+    env:
+      METHOD_VERSION: gha-lane-v1
+      MACHINE_KEY: ${{ inputs.runner }}
+      BENCHMARK_RUNS: ${{ inputs.runs }}
+      WARMUP_RUNS: ${{ inputs.warmup_runs }}
+      BENCH_PASS: "1"
+      BENCHMARK_PROJECT: "XcodeBenchmark"
+    steps:
+      - name: Check out benchmark-xcodebenchmark
+        uses: actions/checkout@v4
+        with:
+          repository: bitrise-io/benchmark-xcodebenchmark
+          fetch-depth: 1
+      - name: Stage scripts and paths
+        run: |
+          cp -R .github/bench "$RUNNER_TEMP/bench"
+          echo "BENCH_OUT=$RUNNER_TEMP/bench-out" >> "$GITHUB_ENV"
+      - name: Machine info
+        run: source "$RUNNER_TEMP/bench/lib.sh" && sysinfo
+      - name: Prepare (not timed)
+        run: bash "$RUNNER_TEMP/bench/prepare.sh"
+      - name: Benchmark
+        run: bash "$RUNNER_TEMP/bench/run.sh"
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: p1-xcodebenchmark-${{ inputs.runner }}
+          path: ${{ runner.temp }}/bench-out
+          if-no-files-found: warn
+  p1-sysbench:
+    name: "pass 1 · sysbench"
+    needs: p1-xcodebenchmark
+    if: ${{ !cancelled() }}
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 300
+    env:
+      METHOD_VERSION: gha-lane-v1
+      MACHINE_KEY: ${{ inputs.runner }}
+      BENCHMARK_RUNS: ${{ inputs.runs }}
+      WARMUP_RUNS: ${{ inputs.warmup_runs }}
+      BENCH_PASS: "1"
+      BENCHMARK_PROJECT: "Sysbench"
+      MEMORY_BLOCK_SIZE: "64M"
+      MEMORY_TOTAL_SIZE: "400G"
+      FILEIO_TOTAL_SIZE: "10G"
+      CPU_SECONDS: "60"
+      FILEIO_SECONDS: "60"
+    steps:
+      - name: Check out benchmark-sysbench
+        uses: actions/checkout@v4
+        with:
+          repository: bitrise-io/benchmark-sysbench
+          fetch-depth: 1
+      - name: Check out bench-fixes
+        uses: actions/checkout@v4
+        with:
+          repository: bitrise-io/benchmark-sysbench
+          ref: bench-fixes
+          path: sysbench-src
+          fetch-depth: 1
+      - name: Stage scripts and paths
+        run: |
+          cp -R .github/bench "$RUNNER_TEMP/bench"
+          echo "BENCH_OUT=$RUNNER_TEMP/bench-out" >> "$GITHUB_ENV"
+          echo "SYSBENCH_SRC=$GITHUB_WORKSPACE/sysbench-src" >> "$GITHUB_ENV"
+      - name: Machine info
+        run: source "$RUNNER_TEMP/bench/lib.sh" && sysinfo
+      - name: Prepare (not timed)
+        run: bash "$RUNNER_TEMP/bench/prepare.sh"
+      - name: Benchmark
+        run: bash "$RUNNER_TEMP/bench/run.sh"
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: p1-sysbench-${{ inputs.runner }}
+          path: ${{ runner.temp }}/bench-out
+          if-no-files-found: warn
+  p2-firefox:
+    name: "pass 2 · firefox"
+    needs: p1-sysbench
+    if: ${{ !cancelled() && inputs.passes == '2' }}
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 300
+    env:
+      METHOD_VERSION: gha-lane-v1
+      MACHINE_KEY: ${{ inputs.runner }}
+      BENCHMARK_RUNS: ${{ inputs.runs }}
+      WARMUP_RUNS: ${{ inputs.warmup_runs }}
+      BENCH_PASS: "2"
+      BENCHMARK_PROJECT: "Firefox-iOS"
+      FIREFOX_PROJECT: "firefox-ios/Client.xcodeproj"
+      FIREFOX_SCHEME: "Fennec"
+      FIREFOX_CONFIGURATION: "Debug"
+      BUILD_DESTINATION: "generic/platform=iOS Simulator"
+      INCREMENTAL_FILE: "firefox-ios/Client/Application/AppDelegate.swift"
+    steps:
+      - name: Check out benchmark-firefox-ios
+        uses: actions/checkout@v4
+        with:
+          repository: bitrise-io/benchmark-firefox-ios
+          fetch-depth: 1
+      - name: Stage scripts and paths
+        run: |
+          cp -R .github/bench "$RUNNER_TEMP/bench"
+          echo "BENCH_OUT=$RUNNER_TEMP/bench-out" >> "$GITHUB_ENV"
+          echo "SPM_DIR=$RUNNER_TEMP/firefox-spm" >> "$GITHUB_ENV"
+      - name: Machine info
+        run: source "$RUNNER_TEMP/bench/lib.sh" && sysinfo
+      - name: Prepare (not timed)
+        run: bash "$RUNNER_TEMP/bench/prepare.sh"
+      - name: Benchmark
+        run: bash "$RUNNER_TEMP/bench/run.sh"
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: p2-firefox-${{ inputs.runner }}
+          path: ${{ runner.temp }}/bench-out
+          if-no-files-found: warn
+  p2-signal:
+    name: "pass 2 · signal"
+    needs: p2-firefox
+    if: ${{ !cancelled() && inputs.passes == '2' }}
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 300
+    env:
+      METHOD_VERSION: gha-lane-v1
+      MACHINE_KEY: ${{ inputs.runner }}
+      BENCHMARK_RUNS: ${{ inputs.runs }}
+      WARMUP_RUNS: ${{ inputs.warmup_runs }}
+      BENCH_PASS: "2"
+      BENCHMARK_PROJECT: "Signal-iOS"
+      SIGNAL_SCHEME: "Signal"
+      SIGNAL_CONFIGURATION: "Debug"
+      INCREMENTAL_FILE: "Signal/AppLaunch/AppDelegate.swift"
+    steps:
+      - name: Check out benchmark-signal-ios
+        uses: actions/checkout@v4
+        with:
+          repository: bitrise-io/benchmark-signal-ios
+          fetch-depth: 1
+      - name: Stage scripts and paths
+        run: |
+          cp -R .github/bench "$RUNNER_TEMP/bench"
+          echo "BENCH_OUT=$RUNNER_TEMP/bench-out" >> "$GITHUB_ENV"
+          echo "SPM_DIR=$RUNNER_TEMP/signal-spm" >> "$GITHUB_ENV"
+      - name: Machine info
+        run: source "$RUNNER_TEMP/bench/lib.sh" && sysinfo
+      - name: Prepare (not timed)
+        run: bash "$RUNNER_TEMP/bench/prepare.sh"
+      - name: Benchmark
+        run: bash "$RUNNER_TEMP/bench/run.sh"
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: p2-signal-${{ inputs.runner }}
+          path: ${{ runner.temp }}/bench-out
+          if-no-files-found: warn
+  p2-ddg-build:
+    name: "pass 2 · ddg-build"
+    needs: p2-signal
+    if: ${{ !cancelled() && inputs.passes == '2' }}
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 300
+    env:
+      METHOD_VERSION: gha-lane-v1
+      MACHINE_KEY: ${{ inputs.runner }}
+      BENCHMARK_RUNS: ${{ inputs.runs }}
+      WARMUP_RUNS: ${{ inputs.warmup_runs }}
+      BENCH_PASS: "2"
+      BENCHMARK_PROJECT: "DuckDuckGo-iOS"
+      BENCH_REPO_URL: "https://github.com/duckduckgo/apple-browsers.git"
+      BENCH_REF_NAME: "7.244.0+ios"
+      BENCH_COMMIT: "560c4f78a44aa1af839e4fef654392ccd8c912fc"
+      XCODE_PROJECT: "DuckDuckGo-iOS.xcodeproj"
+      SCHEME: "iOS Browser"
+      SIM_DEVICE_NAME: "iPhone 18 Pro"
+      SIM_DESTINATION: "platform=iOS Simulator,name=iPhone 18 Pro,OS=latest"
+      INCREMENTAL_TOUCH_FILE: "DuckDuckGo/Main/MainViewController.swift"
+    steps:
+      - name: Check out benchmark-duckduckgo-ios
+        uses: actions/checkout@v4
+        with:
+          repository: bitrise-io/benchmark-duckduckgo-ios
+          fetch-depth: 1
+      - name: Stage scripts and paths
+        run: |
+          cp -R .github/bench "$RUNNER_TEMP/bench"
+          echo "BENCH_OUT=$RUNNER_TEMP/bench-out" >> "$GITHUB_ENV"
+          echo "DDG_SRC=$RUNNER_TEMP/ddg-src" >> "$GITHUB_ENV"
+          echo "IOS_DIR=$RUNNER_TEMP/ddg-src/iOS" >> "$GITHUB_ENV"
+          echo "DERIVED_DATA=$RUNNER_TEMP/ddg-src/iOS/DerivedData" >> "$GITHUB_ENV"
+      - name: Machine info
+        run: source "$RUNNER_TEMP/bench/lib.sh" && sysinfo
+      - name: Prepare (not timed)
+        run: bash "$RUNNER_TEMP/bench/prepare.sh"
+      - name: Benchmark
+        run: bash "$RUNNER_TEMP/bench/run.sh"
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: p2-ddg-build-${{ inputs.runner }}
+          path: ${{ runner.temp }}/bench-out
+          if-no-files-found: warn
+  p2-ddg-test:
+    name: "pass 2 · ddg-test"
+    needs: p2-ddg-build
+    if: ${{ !cancelled() && inputs.passes == '2' }}
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 300
+    env:
+      METHOD_VERSION: gha-lane-v1
+      MACHINE_KEY: ${{ inputs.runner }}
+      BENCHMARK_RUNS: ${{ inputs.runs }}
+      WARMUP_RUNS: ${{ inputs.warmup_runs }}
+      BENCH_PASS: "2"
+      BENCHMARK_PROJECT: "DuckDuckGo-iOS"
+      BENCH_REPO_URL: "https://github.com/duckduckgo/apple-browsers.git"
+      BENCH_REF_NAME: "7.244.0+ios"
+      BENCH_COMMIT: "560c4f78a44aa1af839e4fef654392ccd8c912fc"
+      XCODE_PROJECT: "DuckDuckGo-iOS.xcodeproj"
+      SCHEME: "iOS Browser"
+      SIM_DEVICE_NAME: "iPhone 18 Pro"
+      SIM_DESTINATION: "platform=iOS Simulator,name=iPhone 18 Pro,OS=latest"
+      INCREMENTAL_TOUCH_FILE: "DuckDuckGo/Main/MainViewController.swift"
+      SPM_FORCE_DEBUG: "1"
+      SKIP_TESTS: |
+        SyncUI-iOSTests/TurnOffSyncSheetViewTests
+        SyncUI-iOSTests/ScanQRCodeViewTests
+        SyncUI-iOSTests/SimplifiedConnectingSheetViewTests
+        SyncUI-iOSTests/SyncCodeSheetViewTests
+        SyncUI-iOSTests/EnterCodeTabViewTests
+        SyncUI-iOSTests/SimplifiedSyncSettingsViewTests
+        UnitTests/AIChatSyncPromoViewTests
+        UnitTests/SyncSuccessViewTests
+        UnitTests/VoiceSearchFeedbackViewTests
+        UnitTests/TabPreviewsSourceTests/testWhenUpdateFullScreenSnapshotThenItCanBeRetrieved
+        UnitTests/NetworkProtectionVPNLocationViewModelTests/test_onViewAppeared_loadedListIsSorted
+        UnitTests/AIChatContextualInputViewControllerTests/testWhenAskIsTappedWithTheDisclaimerOnScreenThenAButtonPromptIsReported
+    steps:
+      - name: Check out benchmark-duckduckgo-ios
+        uses: actions/checkout@v4
+        with:
+          repository: bitrise-io/benchmark-duckduckgo-ios
+          fetch-depth: 1
+      - name: Stage scripts and paths
+        run: |
+          cp -R .github/bench "$RUNNER_TEMP/bench"
+          echo "BENCH_OUT=$RUNNER_TEMP/bench-out" >> "$GITHUB_ENV"
+          echo "DDG_SRC=$RUNNER_TEMP/ddg-src" >> "$GITHUB_ENV"
+          echo "IOS_DIR=$RUNNER_TEMP/ddg-src/iOS" >> "$GITHUB_ENV"
+          echo "DERIVED_DATA=$RUNNER_TEMP/ddg-src/iOS/DerivedData" >> "$GITHUB_ENV"
+      - name: Machine info
+        run: source "$RUNNER_TEMP/bench/lib.sh" && sysinfo
+      - name: Prepare (not timed)
+        run: bash "$RUNNER_TEMP/bench/prepare.sh"
+      - name: Benchmark
+        run: bash "$RUNNER_TEMP/bench/test.sh"
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: p2-ddg-test-${{ inputs.runner }}
+          path: ${{ runner.temp }}/bench-out
+          if-no-files-found: warn
+  p2-telegram-debug:
+    name: "pass 2 · telegram-debug"
+    needs: p2-ddg-test
+    if: ${{ !cancelled() && inputs.passes == '2' }}
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 300
+    env:
+      METHOD_VERSION: gha-lane-v1
+      MACHINE_KEY: ${{ inputs.runner }}
+      BENCHMARK_RUNS: ${{ inputs.runs }}
+      WARMUP_RUNS: ${{ inputs.warmup_runs }}
+      BENCH_PASS: "2"
+      BENCHMARK_PROJECT: "Telegram-iOS"
+      TG_COMMIT: "279f89e4d4f63f17227bf877dc3d8990f22ecd58"
+      TG_CONFIGURATION: "debug_sim_arm64"
+    steps:
+      - name: Check out benchmark-telegram-ios
+        uses: actions/checkout@v4
+        with:
+          repository: bitrise-io/benchmark-telegram-ios
+          fetch-depth: 1
+      - name: Stage scripts and paths
+        run: |
+          cp -R .github/bench "$RUNNER_TEMP/bench"
+          echo "BENCH_OUT=$RUNNER_TEMP/bench-out" >> "$GITHUB_ENV"
+      - name: Machine info
+        run: source "$RUNNER_TEMP/bench/lib.sh" && sysinfo
+      - name: Prepare (not timed)
+        run: bash "$RUNNER_TEMP/bench/prepare.sh"
+      - name: Benchmark
+        run: bash "$RUNNER_TEMP/bench/run.sh"
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: p2-telegram-debug-${{ inputs.runner }}
+          path: ${{ runner.temp }}/bench-out
+          if-no-files-found: warn
+  p2-telegram-release:
+    name: "pass 2 · telegram-release"
+    needs: p2-telegram-debug
+    if: ${{ !cancelled() && inputs.passes == '2' }}
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 300
+    env:
+      METHOD_VERSION: gha-lane-v1
+      MACHINE_KEY: ${{ inputs.runner }}
+      BENCHMARK_RUNS: ${{ inputs.runs }}
+      WARMUP_RUNS: ${{ inputs.warmup_runs }}
+      BENCH_PASS: "2"
+      BENCHMARK_PROJECT: "Telegram-iOS"
+      TG_COMMIT: "279f89e4d4f63f17227bf877dc3d8990f22ecd58"
+      TG_CONFIGURATION: "release_sim_arm64"
+    steps:
+      - name: Check out benchmark-telegram-ios
+        uses: actions/checkout@v4
+        with:
+          repository: bitrise-io/benchmark-telegram-ios
+          fetch-depth: 1
+      - name: Stage scripts and paths
+        run: |
+          cp -R .github/bench "$RUNNER_TEMP/bench"
+          echo "BENCH_OUT=$RUNNER_TEMP/bench-out" >> "$GITHUB_ENV"
+      - name: Machine info
+        run: source "$RUNNER_TEMP/bench/lib.sh" && sysinfo
+      - name: Prepare (not timed)
+        run: bash "$RUNNER_TEMP/bench/prepare.sh"
+      - name: Benchmark
+        run: bash "$RUNNER_TEMP/bench/run.sh"
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: p2-telegram-release-${{ inputs.runner }}
+          path: ${{ runner.temp }}/bench-out
+          if-no-files-found: warn
+  p2-xcodebenchmark:
+    name: "pass 2 · xcodebenchmark"
+    needs: p2-telegram-release
+    if: ${{ !cancelled() && inputs.passes == '2' }}
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 300
+    env:
+      METHOD_VERSION: gha-lane-v1
+      MACHINE_KEY: ${{ inputs.runner }}
+      BENCHMARK_RUNS: ${{ inputs.runs }}
+      WARMUP_RUNS: ${{ inputs.warmup_runs }}
+      BENCH_PASS: "2"
+      BENCHMARK_PROJECT: "XcodeBenchmark"
+    steps:
+      - name: Check out benchmark-xcodebenchmark
+        uses: actions/checkout@v4
+        with:
+          repository: bitrise-io/benchmark-xcodebenchmark
+          fetch-depth: 1
+      - name: Stage scripts and paths
+        run: |
+          cp -R .github/bench "$RUNNER_TEMP/bench"
+          echo "BENCH_OUT=$RUNNER_TEMP/bench-out" >> "$GITHUB_ENV"
+      - name: Machine info
+        run: source "$RUNNER_TEMP/bench/lib.sh" && sysinfo
+      - name: Prepare (not timed)
+        run: bash "$RUNNER_TEMP/bench/prepare.sh"
+      - name: Benchmark
+        run: bash "$RUNNER_TEMP/bench/run.sh"
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: p2-xcodebenchmark-${{ inputs.runner }}
+          path: ${{ runner.temp }}/bench-out
+          if-no-files-found: warn
+  p2-sysbench:
+    name: "pass 2 · sysbench"
+    needs: p2-xcodebenchmark
+    if: ${{ !cancelled() && inputs.passes == '2' }}
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 300
+    env:
+      METHOD_VERSION: gha-lane-v1
+      MACHINE_KEY: ${{ inputs.runner }}
+      BENCHMARK_RUNS: ${{ inputs.runs }}
+      WARMUP_RUNS: ${{ inputs.warmup_runs }}
+      BENCH_PASS: "2"
+      BENCHMARK_PROJECT: "Sysbench"
+      MEMORY_BLOCK_SIZE: "64M"
+      MEMORY_TOTAL_SIZE: "400G"
+      FILEIO_TOTAL_SIZE: "10G"
+      CPU_SECONDS: "60"
+      FILEIO_SECONDS: "60"
+    steps:
+      - name: Check out benchmark-sysbench
+        uses: actions/checkout@v4
+        with:
+          repository: bitrise-io/benchmark-sysbench
+          fetch-depth: 1
+      - name: Check out bench-fixes
+        uses: actions/checkout@v4
+        with:
+          repository: bitrise-io/benchmark-sysbench
+          ref: bench-fixes
+          path: sysbench-src
+          fetch-depth: 1
+      - name: Stage scripts and paths
+        run: |
+          cp -R .github/bench "$RUNNER_TEMP/bench"
+          echo "BENCH_OUT=$RUNNER_TEMP/bench-out" >> "$GITHUB_ENV"
+          echo "SYSBENCH_SRC=$GITHUB_WORKSPACE/sysbench-src" >> "$GITHUB_ENV"
+      - name: Machine info
+        run: source "$RUNNER_TEMP/bench/lib.sh" && sysinfo
+      - name: Prepare (not timed)
+        run: bash "$RUNNER_TEMP/bench/prepare.sh"
+      - name: Benchmark
+        run: bash "$RUNNER_TEMP/bench/run.sh"
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: p2-sysbench-${{ inputs.runner }}
+          path: ${{ runner.temp }}/bench-out
+          if-no-files-found: warn
